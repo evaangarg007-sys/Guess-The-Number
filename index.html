@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guess the Number!</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+<style>
+  :root {
+    --bg: #fff4e6;
+    --title: #5b2a86;
+    --text: #3d3d3d;
+    --subtle: #6f6580;
+    --purple: #8e44ec;
+    --pink: #ff6fa5;
+    --pink-dark: #c93a77;
+    --green: #2ecc71;
+    --green-dark: #1e8c4f;
+    --orange: #ff9f43;
+    --orange-dark: #b85f0f;
+    --blue: #4aa8ff;
+    --blue-dark: #2f8adf;
+    --red: #ff5e5e;
+    --red-dark: #d94545;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Arial, Helvetica, sans-serif;
+    display: flex;
+    justify-content: center;
+  }
+  .app {
+    width: 100%;
+    max-width: 440px;
+    min-height: 100vh;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+  .banner {
+    background: linear-gradient(180deg, #8e44ec, #ff6fa5);
+    color: #fff;
+    text-align: center;
+    padding: 24px 16px 20px;
+    height: 110px;
+  }
+  .banner h1 { margin: 0 0 8px; font-size: 22px; }
+  .banner p { margin: 0; font-size: 11pt; color: #f4e9ff; }
+  .body { padding: 20px 30px 30px; flex: 1; text-align: center; }
+  .hidden { display: none !important; }
+
+  .btn {
+    display: block;
+    width: 100%;
+    font: bold 12pt Arial, Helvetica, sans-serif;
+    color: #fff;
+    background: var(--c);
+    border: 0;
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+  .btn:hover, .btn:focus-visible { background: var(--cd); }
+  .btn:focus-visible { outline: 3px solid var(--title); outline-offset: 2px; }
+  .btn.inline { width: auto; margin: 5px auto; }
+  .green  { --c: var(--green);  --cd: var(--green-dark); }
+  .orange { --c: var(--orange); --cd: var(--orange-dark); }
+  .red    { --c: var(--red);    --cd: var(--red-dark); }
+  .blue   { --c: var(--blue);   --cd: var(--blue-dark); }
+
+  .choose { font-weight: bold; font-size: 13pt; margin: 10px 0 15px; }
+  .row { margin: 12px 0; }
+  .best { text-align: right; font-size: 9pt; color: var(--subtle); margin-top: 2px; }
+  .tagline { font-style: italic; font-size: 10pt; color: var(--subtle); margin-top: 25px; }
+
+  #guess {
+    font: bold 18pt Arial, Helvetica, sans-serif;
+    width: 9em;
+    padding: 8px;
+    text-align: center;
+    color: var(--title);
+    background: #fff;
+    border: 2px solid var(--c);
+    margin: 15px 0;
+  }
+  #guess:focus { outline: none; border-color: var(--cd); }
+  #guess:disabled { opacity: .6; }
+
+  .meter {
+    position: relative;
+    width: 100%;
+    max-width: 340px;
+    height: 26px;
+    margin: 20px auto 5px;
+    background: linear-gradient(90deg, #4aa8ff, #ff5e5e);
+  }
+  .marker {
+    position: absolute;
+    top: 16px;
+    width: 0; height: 0;
+    border-left: 7px solid transparent;
+    border-right: 7px solid transparent;
+    border-bottom: 12px solid var(--text);
+    transform: translateX(-50%);
+    transition: left .3s ease;
+    display: none;
+  }
+  .feedback {
+    font-weight: bold;
+    font-size: 13pt;
+    color: var(--subtle);
+    margin: 22px 0 12px;
+    min-height: 3.2em;
+    white-space: pre-line;
+  }
+  .attempts { font-size: 10pt; }
+  .history { font-size: 9pt; color: var(--subtle); margin-top: 4px; min-height: 1.2em; }
+  .newbest { font-weight: bold; font-size: 12pt; color: var(--pink-dark); margin: 4px 0; }
+
+  #confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<canvas id="confetti" aria-hidden="true"></canvas>
+
+<script>
+const DIFFICULTIES = {
+  Easy:   { range: [1, 50],  c: 'green',  emoji: '🌱', color: '#2ecc71', dark: '#1e8c4f' },
+  Medium: { range: [1, 100], c: 'orange', emoji: '🔥', color: '#ff9f43', dark: '#b85f0f' },
+  Hard:   { range: [1, 500], c: 'red',    emoji: '💀', color: '#ff5e5e', dark: '#d94545' }
+};
+const CONFETTI_COLORS = ['#8e44ec', '#ff6fa5', '#2ecc71', '#ff9f43', '#4aa8ff', '#ffd93d'];
+
+// Best scores persist in the browser; fall back to memory if storage is blocked.
+let best = { Easy: null, Medium: null, Hard: null };
+try { Object.assign(best, JSON.parse(localStorage.getItem('gtn-best') || '{}')); } catch (e) {}
+function saveBest() { try { localStorage.setItem('gtn-best', JSON.stringify(best)); } catch (e) {} }
+
+const state = { name: 'Medium', low: 1, high: 100, secret: 0, attempts: 0, history: [], won: false };
+const app = document.getElementById('app');
+
+function banner(title, subtitle) {
+  return `<div class="banner"><h1>${title}</h1><p>${subtitle}</p></div>`;
+}
+
+function showStart() {
+  const rows = Object.entries(DIFFICULTIES).map(([name, d]) => `
+    <div class="row">
+      <button class="btn ${d.c}" data-diff="${name}">${d.emoji}&nbsp; ${name} &nbsp;(${d.range[0]}–${d.range[1]})</button>
+      <div class="best">${best[name] ? `Best: ${best[name]} attempts ⭐` : 'Best: —'}</div>
+    </div>`).join('');
+  app.innerHTML = banner('🎯 Guess the Number!', 'Pick a difficulty to begin') + `
+    <div class="body">
+      <div class="choose">Choose your challenge:</div>
+      ${rows}
+      <div class="tagline">Guess the secret number and I'll tell you<br>how hot or cold you are! 🔥❄️</div>
+    </div>`;
+  app.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click', () => startGame(b.dataset.diff)));
+}
+
+function startGame(name) {
+  const d = DIFFICULTIES[name];
+  Object.assign(state, {
+    name, low: d.range[0], high: d.range[1], attempts: 0, history: [], won: false,
+    secret: Math.floor(Math.random() * (d.range[1] - d.range[0] + 1)) + d.range[0]
+  });
+  app.innerHTML = banner(`${d.emoji} ${name} Mode`, `I'm thinking of a number between ${state.low} and ${state.high}`) + `
+    <div class="body" style="--c:${d.color}; --cd:${d.dark}">
+      <label class="sr" for="guess">Your guess</label>
+      <input id="guess" type="number" inputmode="numeric" min="${state.low}" max="${state.high}" step="1" autocomplete="off">
+      <button class="btn inline ${d.c}" id="submit">🚀 Submit Guess</button>
+      <div class="meter"><div class="marker" id="marker"></div></div>
+      <div class="feedback" id="feedback" role="status" aria-live="polite">Enter a number above to start playing!</div>
+      <div class="attempts" id="attempts">Attempts: 0</div>
+      <div class="history" id="history"></div>
+      <div id="winbox" class="hidden">
+        <div class="newbest hidden" id="newbest">🏆 New Best Score!</div>
+        <button class="btn inline green" id="again">🔁 Play Again</button>
+        <button class="btn inline blue" id="change">🎛️ Change Difficulty</button>
+      </div>
+    </div>`;
+  const input = document.getElementById('guess');
+  input.focus();
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') checkGuess(); });
+  document.getElementById('submit').addEventListener('click', checkGuess);
+  document.getElementById('again').addEventListener('click', () => startGame(state.name));
+  document.getElementById('change').addEventListener('click', showStart);
+}
+
+function setFeedback(text, color) {
+  const el = document.getElementById('feedback');
+  el.textContent = text;
+  el.style.color = color;
+}
+
+function temperatureText(ratio) {
+  if (ratio >= 0.9) return '🔥🔥🔥 Scorching hot, almost there!';
+  if (ratio >= 0.7) return '🔥🔥 Getting warm!';
+  if (ratio >= 0.4) return '🔥 A little warm.';
+  if (ratio >= 0.2) return '❄️ Kind of cold.';
+  return '🧊 Freezing cold!';
+}
+
+function starRating(attempts, ideal) {
+  if (attempts <= ideal) return '⭐⭐⭐ Amazing!';
+  if (attempts <= ideal * 1.5) return '⭐⭐ Great job!';
+  return '⭐ You got it!';
+}
+
+function checkGuess() {
+  if (state.won) return;
+  const input = document.getElementById('guess');
+  const raw = input.value.trim();
+
+  if (!/^\d+$/.test(raw)) {
+    setFeedback('⚠️ Please enter a valid whole number!', '#c0392b');
+    input.value = '';
+    input.focus();
+    return;
+  }
+  const guess = parseInt(raw, 10);
+
+  // Out-of-range guesses don't cost an attempt.
+  if (guess < state.low || guess > state.high) {
+    setFeedback(`🚫 Out of bounds! Stay between ${state.low} and ${state.high}.`, '#d94545');
+    input.value = '';
+    input.focus();
+    return;
+  }
+
+  state.attempts++;
+  document.getElementById('attempts').textContent = `Attempts: ${state.attempts}`;
+
+  const span = state.high - state.low;
+  const ratio = span ? 1 - Math.min(Math.abs(guess - state.secret) / span, 1) : 1;
+  const marker = document.getElementById('marker');
+  marker.style.display = 'block';
+  marker.style.left = Math.max(2, Math.min(98, ratio * 100)) + '%';
+
+  if (guess === state.secret) {
+    gameWon();
+  } else {
+    const dir = guess > state.secret ? '📉 Too High!' : '📈 Too Low!';
+    setFeedback(`${dir}  ${temperatureText(ratio)}`, '#b85f0f');
+    state.history.push(guess);
+    document.getElementById('history').textContent =
+      'Your guesses: ' + state.history.slice(-8).join(', ');
+  }
+  input.value = '';
+  if (!state.won) input.focus();
+}
+
+function gameWon() {
+  state.won = true;
+  const input = document.getElementById('guess');
+  input.disabled = true;
+  document.getElementById('submit').classList.add('hidden');
+
+  const ideal = Math.max(1, Math.round(Math.log2(state.high - state.low + 1)));
+  setFeedback(`🎉 Correct! You found it in ${state.attempts} attempts!\n${starRating(state.attempts, ideal)}`, '#1e8c4f');
+
+  const prev = best[state.name];
+  if (prev === null || state.attempts < prev) {
+    best[state.name] = state.attempts;
+    saveBest();
+    document.getElementById('newbest').classList.remove('hidden');
+  }
+  document.getElementById('winbox').classList.remove('hidden');
+  document.getElementById('again').focus();
+  launchConfetti();
+}
+
+// Confetti draws on a transparent overlay so the win screen stays visible.
+function launchConfetti() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const canvas = document.getElementById('confetti');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width = window.innerWidth;
+  const h = canvas.height = window.innerHeight;
+  const pieces = Array.from({ length: 80 }, () => ({
+    x: Math.random() * w,
+    y: -Math.random() * h,
+    s: 6 + Math.random() * 6,
+    v: 3 + Math.random() * 4,
+    d: (Math.random() - 0.5) * 4,
+    c: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)]
+  }));
+  let frame = 0;
+  (function tick() {
+    ctx.clearRect(0, 0, w, h);
+    pieces.forEach(p => {
+      p.x += p.d; p.y += p.v;
+      ctx.fillStyle = p.c;
+      ctx.fillRect(p.x, p.y, p.s, p.s);
+    });
+    if (++frame < 140) requestAnimationFrame(tick);
+    else ctx.clearRect(0, 0, w, h);
+  })();
+}
+
+showStart();
+</script>
+</body>
+</html>
